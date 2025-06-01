@@ -1,7 +1,19 @@
 package tailscale
 
 import (
+	"context"
 	"net/netip"
+
+	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/dnstype"
+)
+
+// Supported key types for Tailscale SSH
+const (
+	RSA     = "ssh-rsa"
+	ECDSA   = "ecdsa-sha2-nistp256"
+	ED25519 = "ssh-ed25519"
 )
 
 var (
@@ -10,6 +22,14 @@ var (
 	// Tailscale IP address prefix for IPv6
 	ipv6_prefix = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 )
+
+// Client is an interface that defines the methods we need for interacting with
+// Tailscale's local client API.
+type Client interface {
+	Status(ctx context.Context) (*ipnstate.Status, error)
+	QueryDNS(ctx context.Context, host string, qtype string) ([]byte, []*dnstype.Resolver, error)
+	WhoIs(ctx context.Context, ip string) (*apitype.WhoIsResponse, error)
+}
 
 type InvalideTailscaleNameError struct {
 	Host string

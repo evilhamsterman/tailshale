@@ -27,7 +27,6 @@ SSH known_hosts file.`, "\n"),
 	Run: func(cmd *cobra.Command, args []string) {
 		// This command will be implemented in the future
 		cmd.Println("This command is not yet implemented")
-		cmd.Println(args)
 	},
 }
 

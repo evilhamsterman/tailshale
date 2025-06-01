@@ -3,21 +3,13 @@ package tailscale
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/miekg/dns"
+	"golang.org/x/crypto/ssh"
 	"tailscale.com/client/local"
-	"tailscale.com/ipn/ipnstate"
-	"tailscale.com/types/dnstype"
 )
-
-// Client is an interface that defines the methods we need for interacting with
-// Tailscale's local client API.
-type Client interface {
-	Status(ctx context.Context) (*ipnstate.Status, error)
-	QueryDNS(ctx context.Context, host string, qtype string) ([]byte, []*dnstype.Resolver, error)
-}
 
 var _ Client = (*local.Client)(nil) // Ensure the tailscale local.Client implements the Client interface
 
@@ -41,7 +33,7 @@ func NewTSClient(c Client) (*TSClient, error) {
 
 // QueryTSDNS queries the Tailscale DNS for the given host.
 // It returns the IP address if found, or an error if not found.
-func (c *TSClient) QueryTSDNS(ctx context.Context, host string) (*net.IP, error) {
+func (c *TSClient) QueryTSDNS(ctx context.Context, host string) (*netip.Addr, error) {
 	// Check if the host ends with the Tailnet suffix
 	if !strings.HasSuffix(host, c.Tailnet) {
 		host = host + "." + c.Tailnet
@@ -58,12 +50,38 @@ func (c *TSClient) QueryTSDNS(ctx context.Context, host string) (*net.IP, error)
 	// Check for A records in the response
 	for _, ans := range dnsMsg.Answer {
 		if a, ok := ans.(*dns.A); ok {
-			ip := net.ParseIP(a.A.String())
-			if ip != nil {
-				return &ip, nil
-			}
+			ip, _ := netip.AddrFromSlice(a.A)
+			return &ip, nil
 		}
 	}
 	// If no A records found, return an error
 	return nil, fmt.Errorf("no A record found for %s", host)
+}
+
+// GetSSHHostKeys retrieves the SSH host keys for the given IP address.
+func (c *TSClient) GetSSHHostKeys(ctx context.Context, ip netip.Addr) ([]ssh.PublicKey, error) {
+	// Use the WhoIs API to get the SSH host keys for the given IP address
+	host, err := c.Client.WhoIs(ctx, ip.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query WhoIs for %s: %w", ip, err)
+	}
+	if host == nil || !host.Node.Hostinfo.TailscaleSSHEnabled() {
+		return nil, fmt.Errorf("Tailscale SSH is not enabled for %s", host.Node.Name)
+	}
+
+	// Parse the SSH host keys from the Hostinfo
+	var keys []ssh.PublicKey
+	for _, keyStr := range host.Node.Hostinfo.SSH_HostKeys().AsSlice() {
+		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(keyStr))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse SSH host key for %s: %w", ip, err)
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// Check IP is a Tailscale node
+func (c *TSClient) IsTailscaleNode(ctx context.Context, ip netip.Addr) bool {
+	return ipv4_prefix.Contains(ip) || ipv6_prefix.Contains(ip)
 }
