@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -42,8 +42,8 @@ func initConfig() {
 		fmt.Println("Error getting user home directory:", err)
 	}
 	// Set defaults
-	viper.SetDefault("config", path.Join(confDir, "tailshale", "config.yaml"))
-	viper.SetDefault("ssh_config", path.Join(homeDir, ".ssh/config"))
+	viper.SetDefault("config", filepath.Join(confDir, "tailshale", "config.yaml"))
+	viper.SetDefault("ssh_config", filepath.Join(homeDir, ".ssh/config"))
 
 	// Set the configuration file name and path
 	viper.SetEnvPrefix("TAILSHALE")
