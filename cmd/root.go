@@ -9,12 +9,15 @@ import (
 	"github.com/spf13/viper"
 )
 
+var Version = "devel"
+
 var rootCmd = &cobra.Command{
 	Use:   "tailshale",
 	Short: "Automatic hostkey validation for Tailscale",
 	Long: `Retrieve hostkeys for Tailscale nodes with Tailscale SSH enabled
 	
 Can Integrate with the SSH client to allow for seamless hostkey authentication`,
+	Version: Version,
 }
 
 func Execute() {

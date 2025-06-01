@@ -28,8 +28,11 @@ var clean = false
 var configureCmd = &cobra.Command{
 	Use:   "configure",
 	Short: "Configure SSH client for Tailscale",
-	Long: `Configure the SSH client to automatically retrieve and validate host keys for Tailscale nodes with Tailscale SSH enabled.
-This command sets up the necessary configurations to allow seamless host key authentication for Tailscale nodes.`,
+	Long: strings.TrimLeft(`
+Configure the SSH client to automatically retrieve and validate host keys for
+Tailscale nodes with Tailscale SSH enabled. This command sets up the necessary
+configurations to allow seamless host key authentication for Tailscale nodes.`,
+		"\n"),
 	Run: func(cmd *cobra.Command, args []string) {
 		fs := afero.NewOsFs()
 		sshConfigPath := viper.GetString("ssh_config")

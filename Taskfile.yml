@@ -1,0 +1,19 @@
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+  VERSION:
+    sh: echo ${GIHUB_REF:-$(git describe --tags --always --dirty)}
+  BUILD_DIR: "./build"
+
+tasks:
+  test:
+    cmds:
+      - go test -v ./...
+    desc: Run all tests
+  build:
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -ldflags="-X github.com/evilhamsterman/tailshale/cmd.Version={{.VERSION}}" -o {{.BUILD_DIR}}/tailshale main.go
