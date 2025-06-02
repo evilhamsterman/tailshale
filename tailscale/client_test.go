@@ -26,6 +26,27 @@ var (
 	TEST_IP                          = netip.MustParseAddr("100.100.100.100")
 )
 
+func getTestDNSMessage() []byte {
+	d := new(dns.Msg)
+	d.SetQuestion("test.example.ts.net.", dns.TypeA)
+	r, _ := dns.NewRR("test.example.ts.net. IN A 100.100.100.100")
+	d.Answer = []dns.RR{r}
+	msg, _ := d.Pack()
+	return msg
+}
+
+func getTestNode(sshKey []string) *tailcfg.Node {
+	h := tailcfg.Hostinfo{
+		SSH_HostKeys: sshKey,
+	}
+	hv := h.View()
+	node := &tailcfg.Node{
+		Name:     "test." + TEST_TAILNET,
+		Hostinfo: hv,
+	}
+	return node
+}
+
 type MockClient struct {
 	mock.Mock
 }
@@ -63,11 +84,7 @@ func TestNewTSClient(t *testing.T) {
 }
 
 func TestQueryDNS(t *testing.T) {
-	d := new(dns.Msg)
-	d.SetQuestion("test.example.ts.net.", dns.TypeA)
-	r, _ := dns.NewRR("test.example.ts.net. IN A 100.100.100.100")
-	d.Answer = []dns.RR{r}
-	msg, _ := d.Pack()
+	msg := getTestDNSMessage()
 
 	m := new(MockClient)
 	m.On("QueryDNS", context.TODO(), "test.example.ts.net", "A").Return(
@@ -81,51 +98,43 @@ func TestQueryDNS(t *testing.T) {
 	m.AssertExpectations(t)
 	assert.NoError(t, err)
 	assert.NotNil(t, ip)
-	assert.Equal(t, netip.MustParseAddr("100.100.100.100"), *ip)
+	assert.Equal(t, netip.MustParseAddr("100.100.100.100"), ip)
 }
 
 func TestGetSSHHostKeys(t *testing.T) {
-	h := tailcfg.Hostinfo{
-		SSH_HostKeys: []string{TEST_HOST_KEY},
-	}
-	hv := h.View()
 	m := new(MockClient)
-	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(&apitype.WhoIsResponse{
-		Node: &tailcfg.Node{
-			Hostinfo: hv,
-		},
-	}, nil)
+	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(
+		&apitype.WhoIsResponse{
+			Node: getTestNode([]string{TEST_HOST_KEY})},
+		nil)
 
 	c := &TSClient{
 		Client:  m,
 		Tailnet: TEST_TAILNET,
 	}
-	keys, err := c.GetSSHHostKeys(context.TODO(), TEST_IP)
+	keys, host, err := c.GetSSHHostKeys(context.TODO(), TEST_IP)
 	m.AssertExpectations(t)
 	assert.NoError(t, err)
+	assert.Equal(t, "test."+TEST_TAILNET, host)
 	require.Len(t, keys, 1)
 	assert.Equal(t, TEST_HOST_KEY_OBJECT, keys[0])
 }
 
 func TestGetSSHHostKeys_NoSSH(t *testing.T) {
-	h := tailcfg.Hostinfo{
-		SSH_HostKeys: []string{},
-	}
-	hv := h.View()
 	m := new(MockClient)
-	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(&apitype.WhoIsResponse{
-		Node: &tailcfg.Node{
-			Hostinfo: hv,
-		},
-	}, nil)
+	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(
+		&apitype.WhoIsResponse{
+			Node: getTestNode(nil)},
+		nil)
 
 	c := &TSClient{
 		Client:  m,
 		Tailnet: TEST_TAILNET,
 	}
-	keys, err := c.GetSSHHostKeys(context.TODO(), TEST_IP)
+	keys, host, err := c.GetSSHHostKeys(context.TODO(), TEST_IP)
 	m.AssertExpectations(t)
 	assert.Error(t, err)
+	assert.Equal(t, "test."+TEST_TAILNET, host)
 	assert.Nil(t, keys)
 }
 
@@ -153,4 +162,69 @@ func TestIsTailcaleNode(t *testing.T) {
 			assert.Equal(t, tt.expected, isNode)
 		})
 	}
+}
+
+func TestGetHost_FQDN(t *testing.T) {
+	m := new(MockClient)
+	m.On("QueryDNS", context.TODO(), "test.example.ts.net", "A").Return(
+		getTestDNSMessage(), []*dnstype.Resolver{}, nil)
+	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(
+		&apitype.WhoIsResponse{
+			Node: getTestNode([]string{TEST_HOST_KEY})},
+		nil)
+	c := &TSClient{
+		Client:  m,
+		Tailnet: TEST_TAILNET,
+	}
+
+	host, err := c.GetHost(context.TODO(), "test.example.ts.net")
+	m.AssertExpectations(t)
+	require.NoError(t, err)
+	assert.NotNil(t, host)
+	assert.Equal(t, "test.example.ts.net", host.Name)
+	assert.Equal(t, TEST_IP, host.IP)
+	assert.Len(t, host.Keys, 1)
+}
+
+func TestGetHost_Hostname(t *testing.T) {
+	m := new(MockClient)
+	m.On("QueryDNS", context.TODO(), "test.example.ts.net", "A").Return(
+		getTestDNSMessage(), []*dnstype.Resolver{}, nil)
+	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(
+		&apitype.WhoIsResponse{
+			Node: getTestNode([]string{TEST_HOST_KEY})},
+		nil)
+	c := &TSClient{
+		Client:  m,
+		Tailnet: TEST_TAILNET,
+	}
+
+	host, err := c.GetHost(context.TODO(), "test")
+	m.AssertExpectations(t)
+	require.NoError(t, err)
+	assert.NotNil(t, host)
+	assert.Equal(t, "test.example.ts.net", host.Name)
+	assert.Equal(t, TEST_IP, host.IP)
+	assert.Len(t, host.Keys, 1)
+}
+
+func TestGetHost_IP(t *testing.T) {
+	m := new(MockClient)
+	m.On("QueryDNS", context.TODO(), TEST_IP.String(), "A").Return(
+		getTestDNSMessage(), []*dnstype.Resolver{}, nil)
+	m.On("WhoIs", context.TODO(), TEST_IP.String()).Return(
+		&apitype.WhoIsResponse{
+			Node: getTestNode([]string{TEST_HOST_KEY})},
+		nil)
+	c := &TSClient{
+		Client:  m,
+		Tailnet: TEST_TAILNET,
+	}
+
+	host, err := c.GetHost(context.TODO(), TEST_IP.String())
+	require.NoError(t, err)
+	assert.NotNil(t, host)
+	assert.Equal(t, "test.example.ts.net", host.Name, "Expected host name to be resolved from IP")
+	assert.Equal(t, TEST_IP, host.IP)
+	assert.Len(t, host.Keys, 1)
 }

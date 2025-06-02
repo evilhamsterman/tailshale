@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 
+	"golang.org/x/crypto/ssh"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/types/dnstype"
@@ -45,4 +46,10 @@ type InvalidTailscaleIPError struct {
 
 func (e *InvalidTailscaleIPError) Error() string {
 	return "invalid Tailscale IP address: " + e.IP.String()
+}
+
+type TailscaleHost struct {
+	Name string
+	IP   netip.Addr
+	Keys map[string]ssh.PublicKey // Key type to public key mapping
 }

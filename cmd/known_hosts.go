@@ -25,7 +25,14 @@ have Tailscale SSH enabled. It prints them out in a format compatible with the
 SSH known_hosts file.`, "\n"),
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// This command will be implemented in the future
+		if check && len(args) > 1 {
+			cmd.PrintErrln("Error: --check can only be used with a single host")
+			return
+		} else if check {
+			// Check if the host supports Tailscale SSH
+
+		}
+
 		cmd.Println("This command is not yet implemented")
 	},
 }
