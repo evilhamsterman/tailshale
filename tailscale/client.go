@@ -59,26 +59,36 @@ func (c *TSClient) QueryTSDNS(ctx context.Context, host string) (netip.Addr, err
 }
 
 // GetSSHHostKeys retrieves the SSH host keys for the given IP address.
-func (c *TSClient) GetSSHHostKeys(ctx context.Context, ip netip.Addr) ([]ssh.PublicKey, string, error) {
+func (c *TSClient) GetSSHHostKeys(ctx context.Context, ip netip.Addr) (*TailscaleHost, error) {
 	// Use the WhoIs API to get the SSH host keys for the given IP address
 	host, err := c.Client.WhoIs(ctx, ip.String())
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to query WhoIs for %s: %w", ip, err)
+		return nil, fmt.Errorf("failed to query WhoIs for %s: %w", ip, err)
 	}
-	if host == nil || !host.Node.Hostinfo.TailscaleSSHEnabled() {
-		return nil, host.Node.Name, fmt.Errorf("Tailscale SSH is not enabled for %s", host.Node.Name)
+
+	if host == nil || host.Node == nil {
+		return nil, fmt.Errorf("no node information found for %s", ip)
+	}
+
+	tsHost := &TailscaleHost{
+		Name: host.Node.Name,
+		IP:   ip,
+	}
+	if !host.Node.Hostinfo.TailscaleSSHEnabled() {
+		return tsHost, fmt.Errorf("Tailscale SSH is not enabled for %s", tsHost.Name)
 	}
 
 	// Parse the SSH host keys from the Hostinfo
-	var keys []ssh.PublicKey
+	keys := make(map[string]ssh.PublicKey)
 	for _, keyStr := range host.Node.Hostinfo.SSH_HostKeys().AsSlice() {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(keyStr))
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to parse SSH host key for %s: %w", ip, err)
+			return tsHost, fmt.Errorf("failed to parse SSH host key for %s: %w", ip, err)
 		}
-		keys = append(keys, key)
+		keys[key.Type()] = key
 	}
-	return keys, host.Node.Name, nil
+	tsHost.Keys = keys
+	return tsHost, nil
 }
 
 // Check IP is a Tailscale node
@@ -103,20 +113,10 @@ func (c *TSClient) GetHost(ctx context.Context, host string) (*TailscaleHost, er
 		return nil, fmt.Errorf("%s is not a Tailscale node", host)
 	}
 
-	keys, host, err := c.GetSSHHostKeys(ctx, ip)
+	tsHost, err := c.GetSSHHostKeys(ctx, ip)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SSH host keys for %s: %w", host, err)
 	}
 
-	keysMap := make(map[string]ssh.PublicKey)
-	for _, key := range keys {
-		keyType := key.Type()
-		keysMap[keyType] = key
-	}
-
-	return &TailscaleHost{
-		Name: host,
-		IP:   ip,
-		Keys: keysMap,
-	}, nil
+	return tsHost, nil
 }

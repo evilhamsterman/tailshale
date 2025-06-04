@@ -18,7 +18,7 @@ const (
 # This file is automatically managed by Tailshale.
 # Do not edit manually.
 
-Match exec "{{.TailshaleCommand}} known-hosts --check %h" exec-timeout 5
+Match exec "{{.TailshaleCommand}} known-hosts --check %h"
   KnownHostsCommand {{.TailshaleCommand}} known-hosts %h
 `
 )
