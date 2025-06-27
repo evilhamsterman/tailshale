@@ -15,5 +15,11 @@ tasks:
   build:
     env:
       CGO_ENABLED: "0"
+    sources:
+      - ./*/**.go
+    generates:
+      - build/tailshale
     cmds:
       - go build -ldflags="-X github.com/evilhamsterman/tailshale/cmd.Version={{.VERSION}}" -o {{.BUILD_DIR}}/tailshale main.go
+  clean:
+    cmd: rm -rf build

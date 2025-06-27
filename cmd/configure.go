@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"html/template"
 	"os"
 	"strings"
 
+	"github.com/evilhamsterman/tailshale/internal"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -24,6 +24,11 @@ configurations to allow seamless host key authentication for Tailscale nodes.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fs := afero.NewOsFs()
 		sshConfigPath := viper.GetString("ssh_config")
+		tailshaleCommand, err := os.Executable()
+		if err != nil {
+			cmd.Println("Error getting executable path:", err)
+			os.Exit(1)
+		}
 
 		if clean {
 			if err := CleanSSHConfig(fs, sshConfigPath); err != nil {
@@ -32,7 +37,7 @@ configurations to allow seamless host key authentication for Tailscale nodes.`,
 			}
 			cmd.Println("SSH configuration cleaned")
 		} else {
-			if err := AddIncludeLine(fs, sshConfigPath); err != nil {
+			if err := AddTailshaleConfig(fs, sshConfigPath, tailshaleCommand); err != nil {
 				cmd.Println("Error adding include line to SSH config:", err)
 				os.Exit(1)
 			}
@@ -47,88 +52,68 @@ func init() {
 	rootCmd.AddCommand(configureCmd)
 }
 
-// templateTailshaleLine creates the include line for the SSH config file
-func templateTailshaleLine() string {
-	tailshaleCommand, err := os.Executable()
+// AddTailshaleConfig adds the include line to the SSH config file
+func AddTailshaleConfig(fs afero.Fs, sshConfPath, exePath string) error {
+	// Open the file, create it if it doesn't exist
+	sshConfFile, err := fs.OpenFile(sshConfPath, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		panic(fmt.Sprintf("Error getting executable path: %v\n", err))
+		return fmt.Errorf("Error opening ssh config file: %w", err)
 	}
-
-	t := template.New("knownhostscommand")
-	t, _ = t.Parse("KnownHostsCommand {{.TailshaleCommand}} known-hosts %h")
-
-	data := struct {
-		TailshaleCommand string
-	}{
-		TailshaleCommand: tailshaleCommand,
-	}
-
-	var buf strings.Builder
-	_ = t.Execute(&buf, data)
-	return buf.String()
-}
-
-// AddIncludeLine adds the include line to the SSH config file
-func AddIncludeLine(fs afero.Fs, path string) error {
-	// Check if the file already exists
-	exists, err := afero.Exists(fs, path)
+	defer sshConfFile.Close()
+	cfg, err := internal.NewSSHConfigFromFile(sshConfFile)
 	if err != nil {
-		return fmt.Errorf("Error checking if file exists: %v", err)
+		return fmt.Errorf("Error reading ssh config file: %w", err)
 	}
 
-	// if the file exists, check if the include line is already present
+	cfg.SetConfig(exePath)
 
-	line := templateTailshaleLine()
-	if exists {
-		ok, err := afero.FileContainsBytes(fs, path, []byte(line))
-		if err != nil {
-			return fmt.Errorf("Error checking if include line exists: %v", err)
-		}
-		if ok {
-			// Include line already exists, no need to add it again
-			return nil
-		}
-	}
-	// Open the file for appending, create it if it doesn't exist
-	fsFile, err := fs.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	err = sshConfFile.Truncate(0) // Clear the file before writing
 	if err != nil {
-		return fmt.Errorf("Error opening file for appending: %v", err)
+		return fmt.Errorf("Error truncating ssh config file: %w", err)
 	}
-	defer fsFile.Close()
+	sshConfFile.Seek(0, 0) // Reset the file pointer to the beginning
+	_, err = sshConfFile.WriteString(cfg.String())
+	if err != nil {
+		return fmt.Errorf("Error writing to ssh config file: %w", err)
+	}
 
-	// Append the include line to the SSH config file
-	if _, err := fsFile.WriteString("\n" + line + "\n"); err != nil {
-		return err
-	}
 	return nil
 }
 
 // CleanSSHConfig cleans up the SSH configuration by removing the include line and the include file
-func CleanSSHConfig(fs afero.Fs, sshConfigPath string) error {
-	// Remove the include line from the SSH config file
-	exists, err := afero.Exists(fs, sshConfigPath)
+func CleanSSHConfig(fs afero.Fs, sshConfPath string) error {
+	// If the file doesn't exist, there's nothing to clean
+	exists, err := afero.Exists(fs, sshConfPath)
 	if err != nil {
-		return fmt.Errorf("Error checking if SSH config file exists: %v", err)
+		return fmt.Errorf("Error checking if ssh config file exists: %w", err)
 	}
-	line := templateTailshaleLine()
-	if exists {
-		ok, err := afero.FileContainsBytes(fs, sshConfigPath, []byte(line))
-		if err != nil {
-			return fmt.Errorf("Error checking if include line exists: %v", err)
-		}
-		if ok {
-			content, err := afero.ReadFile(fs, sshConfigPath)
-			if err != nil {
-				return fmt.Errorf("Error reading SSH config file: %v", err)
-			}
-			// Remove the include line from the content
-			newContent := strings.ReplaceAll(string(content), line+"\n", "")
-			newContent = strings.ReplaceAll(newContent, line, "") // In case it was the last line
-			err = afero.WriteFile(fs, sshConfigPath, []byte(newContent), 0600)
-			if err != nil {
-				return fmt.Errorf("Error writing updated SSH config file: %v", err)
-			}
-		}
+	if !exists {
+		return nil
+	}
+
+	// Read the file content
+	sshConfFile, err := fs.OpenFile(sshConfPath, os.O_RDWR, 0600)
+	if err != nil {
+		return fmt.Errorf("Error opening ssh config file: %w", err)
+	}
+	defer sshConfFile.Close()
+
+	cfg, err := internal.NewSSHConfigFromFile(sshConfFile)
+	if err != nil {
+		return fmt.Errorf("Error reading ssh config file: %w", err)
+	}
+
+	cfg.Config = "" // Clear the config part
+
+	// Write the cleaned config back to the file
+	err = sshConfFile.Truncate(0) // Clear the file before writing
+	if err != nil {
+		return fmt.Errorf("Error truncating ssh config file: %w", err)
+	}
+	sshConfFile.Seek(0, 0) // Reset the file pointer to the beginning
+	_, err = sshConfFile.WriteString(cfg.String())
+	if err != nil {
+		return fmt.Errorf("Error writing to ssh config file: %w", err)
 	}
 
 	return nil

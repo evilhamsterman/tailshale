@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/charmbracelet/fang v0.2.0
+	github.com/lithammer/dedent v1.1.0
 	github.com/miekg/dns v1.1.66
 	github.com/spf13/afero v1.14.0
 	github.com/spf13/cobra v1.9.1

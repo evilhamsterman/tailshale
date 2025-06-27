@@ -23,7 +23,9 @@ Can Integrate with the SSH client to allow for seamless hostkey authentication`,
 }
 
 func Execute() {
-	if err := fang.Execute(context.Background(), rootCmd); err != nil {
+	options := fang.WithColorSchemeFunc(fang.AnsiColorScheme)
+
+	if err := fang.Execute(context.Background(), rootCmd, options); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
