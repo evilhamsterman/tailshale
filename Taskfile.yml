@@ -20,6 +20,6 @@ tasks:
     generates:
       - build/tailshale
     cmds:
-      - go build -ldflags="-X github.com/evilhamsterman/tailshale/cmd.Version={{.VERSION}}" -o {{.BUILD_DIR}}/tailshale main.go
+      - go build -o {{.BUILD_DIR}}/tailshale main.go
   clean:
     cmd: rm -rf build
